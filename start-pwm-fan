@@ -1,0 +1,85 @@
+#!/bin/bash
+
+PWM="/sys/class/pwm/pwmchip0"
+TEMP="/sys/class/thermal/thermal_zone0/temp"
+PERIOD=8000000
+DEFAULT_DUTY_CYCLE=0
+POLARITY="normal"
+TARGET_TEMPS=(65000 60000 55000 50000)
+DUTY_CYCLES=(8000000 6000000 4000000 2000000)
+
+if [ -n "$1" ]; then
+	. $1
+fi
+
+echo "Configs:"
+echo "PWM: $PWM"
+echo "TEMP: $TEMP"
+echo "PERIOD: $PERIOD"
+echo "DEFAULT_DUTY_CYCLE: $DEFAULT_DUTY_CYCLE"
+echo "POLARITY: $POLARITY"
+echo "TARGET_TEMPS: ${TARGET_TEMPS[*]}"
+echo "DUTY_CYCLES: ${DUTY_CYCLES[*]}"
+
+if [ ! -d $PWM ]; then
+    echo "this model does not support pwm"
+    exit 1
+fi
+
+if [ ! -d ${PWM}/pwm0 ]; then
+    echo -n 0 > ${PWM}/export
+fi
+
+while [ ! -d ${PWM}/pwm0 ];
+do
+    sleep 1
+done
+
+# polarity can only be changed if PWM is not enabled, disable PWM first
+if [ $(cat ${PWM}/pwm0/enable) -ne 0 ]; then
+	echo -n 0 > ${PWM}/pwm0/enable
+fi
+# set duty_cycle to 0 to avoid invalid period value
+if [ $(cat ${PWM}/pwm0/duty_cycle) -ne 0 ]; then
+	echo -n 0 > ${PWM}/pwm0/duty_cycle
+fi
+echo -n $PERIOD > ${PWM}/pwm0/period
+echo -n $POLARITY > ${PWM}/pwm0/polarity
+
+# max speed run 5s
+if [ $POLARITY == "normal" ]; then
+	echo -n $PERIOD > ${PWM}/pwm0/duty_cycle
+fi
+echo -n 1 > ${PWM}/pwm0/enable
+sleep 5
+
+while true
+do
+	temp=$(cat $TEMP)
+	duty_cycle=$(cat ${PWM}/pwm0/duty_cycle)
+	INDEX=0
+	FOUNDTEMP=0
+	DUTY=$DEFAULT_DUTY_CYCLE
+
+	for i in "${!TARGET_TEMPS[@]}"
+	do
+		if [ $temp -gt ${TARGET_TEMPS[$i]} ]; then
+			INDEX=$i
+			FOUNDTEMP=1
+			break
+		fi
+	done
+
+	if [ ${FOUNDTEMP} == 1 ]; then
+		if [ $INDEX -lt ${#DUTY_CYCLES[@]} ]; then
+			DUTY=${DUTY_CYCLES[$INDEX]}
+		fi
+	fi
+
+	if [ ${DUTY} -ne ${duty_cycle} ]; then
+		echo -n $DUTY > ${PWM}/pwm0/duty_cycle
+		echo "temperature: $temp, duty cycle: $DUTY"
+	fi
+
+	sleep 1
+done

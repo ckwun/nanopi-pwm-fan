@@ -1,0 +1,9 @@
+[Unit]
+Description=PWM fan control
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/start-pwm-fan /etc/pwm-fan.conf
+
+[Install]
+WantedBy=multi-user.target
